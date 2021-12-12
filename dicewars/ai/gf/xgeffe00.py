@@ -8,8 +8,8 @@ from dicewars.ai.utils import possible_attacks, probability_of_successful_attack
 from dicewars.client.ai_driver import BattleCommand, EndTurnCommand
 from dicewars.client.game.board import Board
 
-
 class AI:
+    __DEPTH = 2
 
     def __init__(self, player_name, board, players_order, max_transfers):
         self.player_name = player_name
@@ -17,15 +17,13 @@ class AI:
         self.cache = []
         self.sum_of_dices = 0
         self.promising_attack = None
+        self.attack_depth_two = None
 
     def ai_turn(self, board: Board, nb_moves_this_turn, nb_transfers_this_turn, nb_turns_this_game, time_left):
-        print("----------------------------------------------------------------------------------------")
-        print("------- INITIAL BOARD -----")
-        print(len(board.get_player_areas(self.player_name)))
         print("Start geffik AI Player-" + str(self.player_name) + " turn")
         self.promising_attack = []
         self.sum_of_dices = 0
-        self.actions_calculation(board, 2)
+        self.actions_calculation(board, self.__DEPTH)
 
         if len(self.promising_attack) == 0:
             print("No more possible turns.")
@@ -52,10 +50,13 @@ class AI:
             return number_of_dices
 
         for attack in attacks:
+            if depth == self.__DEPTH:
+                print("Storing a possible attack: " + str(attack))
+                self.attack_depth_two = attack
+
             source = attack[0]
             target = attack[1]
 
-            print("INITIAL BOARD IN GAME " + str(len(board.get_player_areas(self.player_name))))
             tmp = 0
             if source.get_dice() > 1:
                 tmp = probability_of_successful_attack(board, source.get_name(), target.get_name())
@@ -68,33 +69,20 @@ class AI:
             board_after_simulation = copy.deepcopy(board)
             board_after_simulation = self.simulate_turn(board_after_simulation, source, target)
 
-            print("INITIAL BOARD AFTER SIMULATION " + str(len(board.get_player_areas(self.player_name))))
             print("AI: Probability is ok, i will simulate attack and then search deeper in depth: " + str(depth - 1))
             number_of_dices = self.actions_calculation(board_after_simulation, depth - 1)
             print("AI: Back in depth: " + str(depth))
 
-            if len(self.cache) < depth:
-                self.cache.append(number_of_dices)
-                print("Adding biggest num of dices to cache (1. condition): " + str(number_of_dices))
-            else:
-                if number_of_dices > self.cache[depth - 1]:
-                    self.cache[depth - 1] = number_of_dices
-                    print("Adding biggest num of dices to cache (2. condition): " + str(number_of_dices))
-
-            if len(self.cache) > 0:
-                tmp2 = 0
-                for item in self.cache:
-                    tmp2 += item
-                print("Cache was summed: " + str(tmp2))
-
-                if tmp2 > self.sum_of_dices:
-                    self.sum_of_dices = tmp2
+            if number_of_dices >= self.sum_of_dices:
+                print("AI: I found solution with more dices, then previous: " +
+                      str(self.sum_of_dices) + " actual: " + str(number_of_dices))
+                self.sum_of_dices = number_of_dices
+                if depth == self.__DEPTH:
                     self.promising_attack = attack
-                    print("I found better option, so i replaced current, storing attack source: " + str(self.promising_attack[0].get_name()) +
-                          " target: " + str(self.promising_attack[1].get_name()))
-
-            if depth == 2:
-                self.cache = []
+                    print("I found better option, so i replaced current, storing attack source: " +
+                          str(self.promising_attack[0].get_name()) + " target: " +
+                          str(self.promising_attack[1].get_name()))
+            print("######################################################################################")
 
         print("I already research all my possible attacks in depth: " + str(depth))
         print("Return from recursion with number of dices: " + str(number_of_dices))
