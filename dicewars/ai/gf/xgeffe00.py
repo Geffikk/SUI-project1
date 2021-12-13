@@ -1,15 +1,18 @@
 import random
 import logging
-from typing import List, Union, Tuple, Deque, Dict
+from typing import List, Union, Tuple, Deque, Dict, Optional, Any
 import copy
+from colorama import Fore
 
 from dicewars.ai.utils import possible_attacks, probability_of_successful_attack, probability_of_holding_area
 
-from dicewars.client.ai_driver import BattleCommand, EndTurnCommand
+from dicewars.client.ai_driver import BattleCommand, EndTurnCommand, TransferCommand
+from dicewars.client.game.area import Area
 from dicewars.client.game.board import Board
 
 class AI:
     __DEPTH = 2
+    __MAX_NUMBER_OF_TRANSFERS = 6
 
     def __init__(self, player_name, board, players_order, max_transfers):
         self.player_name = player_name
@@ -18,11 +21,41 @@ class AI:
         self.sum_of_dices = 0
         self.promising_attack = None
         self.attack_depth_two = None
+        self.middle_areas = []
+        self.banned_areas = []
 
     def ai_turn(self, board: Board, nb_moves_this_turn, nb_transfers_this_turn, nb_turns_this_game, time_left):
+        print("------------------------------------ NEW TURN -------------------------------------------------")
         print("Start geffik AI Player-" + str(self.player_name) + " turn")
         self.promising_attack = []
         self.sum_of_dices = 0
+        self.middle_areas = [] # todo
+        self.banned_areas = [] # todo
+
+        if nb_transfers_this_turn < self.__MAX_NUMBER_OF_TRANSFERS:
+            while nb_transfers_this_turn < self.__MAX_NUMBER_OF_TRANSFERS:
+                for i in range(len(board.get_player_border(self.player_name))):
+                    print("AI: I trying to support border areas")
+                    vulnerable_area, neighbour_area = self.transfer_dice_to_border(board)
+                    if vulnerable_area is not None and neighbour_area is not None:
+                        print("AI: I supporting area: " + str(vulnerable_area.get_name()) + " from area: " + str(neighbour_area.get_name()))
+                        return TransferCommand(neighbour_area.get_name(), vulnerable_area.get_name())
+                    else:
+                        print("AI: Border area not supported")
+
+                if len(self.middle_areas) != 0:
+                    print("AI: I trying to support middle areas")
+                    vulnerable_area, neighbour_area = self.support_middle_areas(board, self.middle_areas)
+                    if vulnerable_area is not None and neighbour_area is not None:
+                        print("AI: I supporting middle area: " + str(vulnerable_area.get_name()) + " from area: " + str(neighbour_area.get_name()))
+                        return TransferCommand(neighbour_area.get_name(), vulnerable_area.get_name())
+                    else:
+                        print("AI: I dont have troops for transfer")
+                        break
+                else:
+                    break
+
+
         self.actions_calculation(board, self.__DEPTH)
 
         if len(self.promising_attack) == 0:
@@ -93,16 +126,6 @@ class AI:
         return num_of_dice
 
     def simulate_turn(self, board, source, target):
-        """Simulation of turn on given game board
-        Attributes
-        ----------
-        board : board
-        source : int
-        target : int
-        Returns
-        -------
-        board
-        """
         src_name = source.get_name()
         src_tmp = board.get_area(src_name)
 
@@ -115,4 +138,85 @@ class AI:
         src_tmp.set_dice(1)
 
         return board
+
+    def transfer_dice_to_border(self, board: Board) -> Tuple[Area, Area]:
+        vulnerable_area = self.get_vulnerable_area(board)
+        if vulnerable_area is not None:
+            neighbour_area = self.get_neighbours_of_vulnerable_area(board, vulnerable_area)
+        else:
+            neighbour_area = None
+        return vulnerable_area, neighbour_area
+
+    def get_vulnerable_area(self, board: Board) -> Optional[Area]:
+        areas = board.get_player_border(self.player_name)
+        vulnerable_areas = []
+        result_area = None
+
+        for area in areas:
+            if area.get_dice() <= 6:
+                vulnerable_areas.append(area)
+
+        min_prob_hold = 1.0
+        for vulnerable_area in vulnerable_areas:
+            prob_of_old_area = probability_of_holding_area(board, vulnerable_area.get_name(), vulnerable_area.get_dice(), self.player_name)
+            if prob_of_old_area < min_prob_hold and vulnerable_area not in self.banned_areas:
+                result_area = vulnerable_area
+                min_prob_hold = prob_of_old_area
+
+        if result_area is None:
+            print("AI: I not found vulnerable area")
+            return None
+
+        print("AI: My vulnerable area is: " + str(result_area.get_name()))
+        self.banned_areas.append(result_area)
+        return result_area
+
+    def get_neighbours_of_vulnerable_area(self, board: Board, area: Area) -> Optional[Area]:
+        neighbours = area.get_adjacent_areas_names()
+
+        for adj in neighbours:
+            adjacent_area = board.get_area(adj)
+
+            if adjacent_area.get_owner_name() == self.player_name and \
+                    board.is_at_border(adjacent_area) is False and adjacent_area.get_dice() > 1:
+
+                print("AI: My neighbour area, which can support me is: " + str(adjacent_area.get_name()))
+                return adjacent_area
+
+            elif adjacent_area.get_owner_name() == self.player_name and \
+                    board.is_at_border(adjacent_area) is False:
+
+                if adjacent_area not in self.middle_areas:
+                    self.middle_areas.append(adjacent_area)
+
+        print("AI: I not found area, which can support me")
+        return None
+
+    def support_middle_areas(self, board: Board, middle_areas: List[Area]) -> Union[tuple[None, None], tuple[Area, Area]]:
+        new_middle_areas = []
+
+        for area in middle_areas:
+            adjacent_areas = area.get_adjacent_areas_names()
+
+            for adj in adjacent_areas:
+                adjacent_area = board.get_area(adj)
+
+                is_owner_name = adjacent_area.get_owner_name() == self.player_name
+                is_not_at_border = board.is_at_border(adjacent_area) is False
+                is_not_in_middle_areas = adjacent_area not in self.middle_areas
+                has_dice = adjacent_area.get_dice() > 1
+
+                if is_owner_name and is_not_at_border is False and has_dice and is_not_in_middle_areas:
+                    return area, adjacent_area
+                elif is_owner_name and is_not_at_border and is_not_in_middle_areas:
+                    if adjacent_area not in new_middle_areas:
+                        new_middle_areas.append(adjacent_area)
+
+        if len(new_middle_areas) == 0:
+            adjacent_area = None
+            area = None
+            return area, adjacent_area
+
+        area, adjacent_area = self.support_middle_areas(board, new_middle_areas)
+        return area, adjacent_area
 
