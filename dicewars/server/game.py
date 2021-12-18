@@ -5,6 +5,8 @@ import random
 import numpy as np
 import socket
 import sys
+import csv
+import pandas as pd
 
 from .player import Player
 
@@ -412,7 +414,18 @@ class Game:
 
         return False
 
+    def __write_to_csv(self, mark):
+        df = pd.read_csv("training_data.csv")
+
+        df['game_result'] = df['game_result'].replace({'-1': mark})
+        df.to_csv("training_data.csv", index=False)
+
     def process_win(self, player_nick, player_name):
+        #if player_nick == "gf.xgeffe00 (AI)":
+        #    self.__write_to_csv(1)
+        #else:
+        #    self.__write_to_csv(0)
+
         self.summary.set_winner(player_nick)
         self.logger.info("Player {} ({}) wins!".format(player_nick, player_name))
         for i in self.players:
