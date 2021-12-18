@@ -551,9 +551,9 @@ class AI:
         if board.nb_players_alive() == 4:
             tresh_hold = 0.48 #* self.agresivity_index
         elif board.nb_players_alive() == 3:
-            tresh_hold = 0.40 #* self.agresivity_index
+            tresh_hold = 0.42 #* self.agresivity_index
         else:
-            tresh_hold = 0.30 #* self.agresivity_index
+            tresh_hold = 0.33 #* self.agresivity_index
 
         if win_chance > tresh_hold:
             return True
