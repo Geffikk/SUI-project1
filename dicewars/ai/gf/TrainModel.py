@@ -4,8 +4,9 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 
-import Model as m
-
+import os
+import sys
+import dicewars.ai.gf.Model as m
 
 # torch.manual_seed(0)
 # np.random.seed(0)
@@ -14,46 +15,52 @@ import Model as m
 
 # first,second,third,fourth,fifth,sixth,sevent,eighth,win
 
-def shuffle_data(basic, shuffled):
-    with open(basic, 'r') as r, open(shuffled, 'w') as w:
-        data = r.readlines()
-        header, rows = data[0], data[1:]
-        random.shuffle(rows)
-        rows = '\n'.join([row.strip() for row in rows])
-        w.write(header + rows)
+class TrainModel:
+    def __init__(self):
+        pass
 
+    @staticmethod
+    def shuffle_data(basic, shuffled):
+        with open(basic, 'r') as r, open(shuffled, 'w') as w:
+            data = r.readlines()
+            header, rows = data[0], data[1:]
+            random.shuffle(rows)
+            rows = '\n'.join([row.strip() for row in rows])
+            w.write(header + rows)
 
-def threshold(x, t=0.65):
-    if x < t:
-        return 0
-    else:
-        return 1
+    @staticmethod
+    def threshold(x, t=0.6):
+        if x < t:
+            return 0
+        else:
+            return 1
 
+    def evaluate(self, model):
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for data in trainset:
+                X, y = data
+                output = model(X)
 
-def evaluate(model):
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for data in trainset:
-            X, y = data
-            output = model(X)
+                for idx, i in enumerate(output):
+                    if self.threshold(i) == y[idx]:
+                        correct += 1
+                    total += 1
+        return correct
 
-            for idx, i in enumerate(output):
-                if threshold(i) == y[idx]:
-                    correct += 1
-                total += 1
-    return correct
+    @staticmethod
+    def load_model():
+        model = m.Model()
+        #cwd = os.getcwd()
+        #print(cwd)
+        model.load_state_dict(torch.load("dicewars/ai/gf/SUI_model"))
+        model.eval()
+        return model
 
-
-def load_model():
-    model = m.Model()
-    model.load_state_dict(torch.load("xreset00_model"))
-    model.eval()
-    return model
-
-
-def save_model(model):
-    torch.save(model.state_dict(), "SUI_model")
+    @staticmethod
+    def save_model(model):
+        torch.save(model.state_dict(), "SUI_model")
 
 
 if __name__ == '__main__':
@@ -140,6 +147,7 @@ if __name__ == '__main__':
 
     print("Accuracy testset: ", round(correct / total, 3))
 
+    save_model(best_net)
     print("Model's state_dict:")
     for param_tensor in best_net.state_dict():
         print(param_tensor, "\t", best_net.state_dict()[param_tensor])
