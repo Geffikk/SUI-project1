@@ -251,7 +251,13 @@ class AI:
             for column in self.training_data.values():
                 vector.append(column)
 
-            pst = self.model(torch.Tensor([vector]))
+            # Aby sa uz neupravovali vahy modelu
+            with torch.no_grad():
+                # Pre hodnotu 0/1 ako predpovede ci prehra aelob vyhra z daneho stavu
+                # pst = TrainModel.threshold(self.model(torch.Tensor([vector])))
+                # Teraz mame pravdepodobnost v rozmedzi 0 az 1 (napr. 0.821)
+                pst = self.model(torch.Tensor([vector]))
+
             atk_power = float(atk_power / 8)
             median = ((pst.item()*0.8) + (prob_of_successful_attack*0.8) + (hold_prob*1.2) + (atk_power*1.2)) / 4
 
