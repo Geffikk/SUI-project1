@@ -31,7 +31,7 @@ class TrainModel:
             w.write(header + rows)
 
     @staticmethod
-    def threshold(x, t=0.6):
+    def threshold(x, t=0.61):
         if x < t:
             return 0
         else:
@@ -61,8 +61,8 @@ class TrainModel:
         # cwd = os.getcwd()
         # print(cwd)
         # for debug
-        model.load_state_dict(torch.load("SUI_model"))
-        # model.load_state_dict(torch.load("dicewars/ai/gf/SUI_model"))
+        # model.load_state_dict(torch.load("SUI_model"))
+        model.load_state_dict(torch.load("dicewars/ai/gf/SUI_model"))
         model.eval()
         return model
 
