@@ -536,7 +536,7 @@ class AI:
         for adj in adj_areas:
             adj_area_distance = self.get_distance_from_border(areas_distance_from_border,board.get_area(adj))
 
-            if adj_area_distance < area_level and board.get_area(adj).get_dice() < 8:
+            if adj_area_distance < area_level:
                 cur_val = 1.2*adj_area_distance + board.get_area(adj).get_dice()
                 if cur_val < weak_area_val:
                     weak_area_val = cur_val
