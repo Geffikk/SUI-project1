@@ -4,6 +4,8 @@ import csv
 
 import numpy
 
+import math
+
 from dicewars.ai.gf.TrainModel import TrainModel
 
 import torch
@@ -19,6 +21,10 @@ class AI:
     __DEPTH = 1
     __MAX_NUMBER_OF_TRANSFERS = 6
     __SUPPORT_FROM_BEHIND = 1
+
+    __MAX_TRANSFERS_FROM_BEHIND = 3
+    __MAX_TRANSFERS_BEFORE_BATTLE = 5
+    __MIN_TRANSFER_VALUE = 3
 
     def __write_to_csv(self, dict):
         self.csv_file = open('training_data.csv', 'a')
@@ -80,6 +86,7 @@ class AI:
         #print (sniffer.has_header(
         #    open("training_data.csv").read(sample_bytes)))
         #self.csv_file.close()
+        self.players_order = players_order
         self.model = TrainModel.load_model()
 
         self.player_name = player_name
@@ -109,18 +116,21 @@ class AI:
         self.middle_areas = [] # todo
         self.prob_of_successful_attack = 0
 
-        transfer_command = self.transfer_from_behind_decider(nb_transfers_this_turn, board)
+        self.nb_transfers_this_turn = nb_transfers_this_turn
 
-        #print(nb_transfers_this_turn)
+        """Try to use half of move commands to transfer units from behind"""
+        transfer_command = self.transfer_from_behind_decider(nb_transfers_this_turn, board)
 
         if transfer_command is not None:
             return transfer_command  # Return TransferCommand()
 
+        """Using the rest of commands to support borders"""
         transfer_command = self.transfer_on_border_decider(nb_transfers_this_turn, board)
 
         if transfer_command is not None:
             return transfer_command  # Return TransferCommand()
 
+        """If there are any moves left try to move more units from behind"""
         transfer_command = self.find_areas_for_transfer(nb_transfers_this_turn, board)
 
         if transfer_command is not None:
@@ -136,6 +146,19 @@ class AI:
 
         if attack_command is not None:
             return attack_command  # Return AttackCommand()
+
+        """Try to make more moves after attacking"""
+        """Using the rest of commands to support borders"""
+        transfer_command = self.transfer_on_border_decider(nb_transfers_this_turn, board)
+
+        if transfer_command is not None:
+            return transfer_command  # Return TransferCommand()
+
+        """If there are any moves left try to move more units from behind"""
+        transfer_command = self.find_areas_for_transfer(nb_transfers_this_turn, board)
+
+        if transfer_command is not None:
+            return transfer_command  # Return TransferCommand()
 
         return EndTurnCommand()
 
@@ -160,31 +183,15 @@ class AI:
 
     def transfer_on_border_decider(self, nb_transfers_this_turn, board):
         if nb_transfers_this_turn < self.__MAX_NUMBER_OF_TRANSFERS:
-            while nb_transfers_this_turn < self.__MAX_NUMBER_OF_TRANSFERS:
-                for i in range(len(board.get_player_border(self.player_name))):
-                    vulnerable_area, neighbour_area = self.transfer_dice_to_border(board)
-                    if vulnerable_area is not None and neighbour_area is not None:
-                        return TransferCommand(neighbour_area.get_name(), vulnerable_area.get_name())
-                    else:
-                        pass
-
-                if len(self.middle_areas) != 0:
-                    vulnerable_area, neighbour_area = self.support_middle_areas(board, self.middle_areas, 5)
-                    if vulnerable_area is not None and neighbour_area is not None:
-                        return TransferCommand(neighbour_area.get_name(), vulnerable_area.get_name())
-                    else:
-                        break
-                else:
-                    break
-
+            vulnerable_area, neighbour_area = self.transfer_dice_to_border(board)
+            if vulnerable_area is not None and neighbour_area is not None:
+                return TransferCommand(neighbour_area.get_name(), vulnerable_area.get_name())
         return None
 
     def transfer_from_behind_decider(self, nb_transfers_this_turn, board):
-        num_of_areas = 3
-
-        if nb_transfers_this_turn < num_of_areas:
+        """USE HALF OF MOVE COMMANDS TO TRANSFER UNITS FROM BEHIND"""
+        if nb_transfers_this_turn < self.__MAX_TRANSFERS_FROM_BEHIND:
             return self.find_areas_for_transfer(nb_transfers_this_turn, board)
-
         return None
 
     def find_areas_for_transfer(self, nb_transfers_this_turn, board):
@@ -206,7 +213,7 @@ class AI:
                depth: Depth of recursion.
 
            Return: Return, board after simulation.
-           """
+        """
         attacks = list(possible_attacks(board, self.player_name))
         number_of_dices = board.get_player_dice(self.player_name)
 
@@ -265,7 +272,7 @@ class AI:
                 self.prob_of_successful_attack = median
                 self.promising_attack = attack
 
-            # TODO - Tento trash code treba nahradiť normalnym prehladavanim stavoveho priestoru
+            # TODO.md - Tento trash code treba nahradiť normalnym prehladavanim stavoveho priestoru
             #if median > self.prob_of_successful_attack and depth == self.__DEPTH:
             #    #self.sum_of_dices = number_of_dices
             #    self.prob_of_successful_attack = median
@@ -300,20 +307,39 @@ class AI:
 
     def transfer_dice_to_border(self, board: Board) -> Tuple[Area, Area]:
         """
-        Description: Transfer dice on border.
+        Description: Transfer dice on border. Searches neighbours of
+                    each border area and supports area which will has
+                    the biggest difference of probability of hold before support and after support
 
         Parameters:
             board: Game board.
 
         Return: Return, area which can transfer her dice on border
         """
-        vulnerable_area = self.get_vulnerable_area(board)
-        if vulnerable_area is not None:
-            neighbour_area = self.get_neighbours_of_vulnerable_area(board, vulnerable_area)
-        else:
-            neighbour_area = None
+        borders = board.get_player_border(self.player_name)
 
-        return vulnerable_area, neighbour_area
+        target_border = None
+        max_prob_dif = [None, -1]
+
+        for border_area in borders:
+            if border_area.get_dice() != 8:
+                border_area_neighbours = border_area.get_adjacent_areas_names()
+                curr_hold_prob = probability_of_holding_area(board,border_area.name,border_area.get_dice(),self.player_name)
+                for area_name in border_area_neighbours:
+                    area = board.get_area(area_name)
+                    if area.get_owner_name() == self.player_name and area not in borders:
+                        new_dice = area.get_dice() + border_area.get_dice()
+                        if new_dice > 8:
+                            new_dice = 8
+                        supp_hold_prob = probability_of_holding_area(board, border_area.name, new_dice,self.player_name)
+                        curr_prob_diff = math.fabs(supp_hold_prob-curr_hold_prob)
+
+                        if curr_prob_diff > max_prob_dif[1]:
+                            max_prob_dif[0] = area
+                            max_prob_dif[1] = curr_prob_diff
+                            target_border = border_area
+
+        return target_border, max_prob_dif[0]
 
     def get_vulnerable_area(self, board: Board) -> Optional[Area]:
         """
@@ -372,45 +398,6 @@ class AI:
 
         return None
 
-    def support_middle_areas(self, board: Board, middle_areas: List[Area], depth) -> Union[tuple[None, None], tuple[Area, Area]]:
-        """
-        Description: Support middle areas
-
-        Parameters:
-            board: Game board.
-            middle_areas: Areas which are not on border.
-            depth: depth of recursion
-
-        Return: Supporting area and area which need to be supported
-        """
-        new_middle_areas = copy.deepcopy(self.middle_areas)
-
-        for area in middle_areas:
-            adjacent_areas = area.get_adjacent_areas_names()
-
-            for adj in adjacent_areas:
-                adjacent_area = board.get_area(adj)
-
-                is_owner_name = adjacent_area.get_owner_name() == self.player_name
-                is_at_border = board.is_at_border(adjacent_area) is False
-                is_in_middle_areas = adjacent_area not in new_middle_areas
-                has_dice = adjacent_area.get_dice() > 3
-
-                if is_owner_name and is_at_border is False and has_dice and is_in_middle_areas is False:
-                    return area, adjacent_area
-
-                elif is_owner_name and is_at_border is False and is_in_middle_areas is False:
-                    if adjacent_area not in new_middle_areas:
-                        new_middle_areas.append(adjacent_area)
-
-        if len(new_middle_areas) == 0 or depth == 0:
-            adjacent_area = None
-            area = None
-            return area, adjacent_area
-
-        area, adjacent_area = self.support_middle_areas(board, new_middle_areas, depth - 1)
-        return area, adjacent_area
-
     def move_dice_from_behind_to_front(self, board: Board):
         """
         Description: Move dice from behind closer to border.
@@ -428,7 +415,7 @@ class AI:
         max_iterations = 7
         banned_areas = []
 
-        while ((supporting_area is None) or (adjacent_area is None)) and (max_iterations == 0):
+        while ((supporting_area is None) or (adjacent_area is None)) and (max_iterations != 0):
             if supporting_area is not None and adjacent_area is None:
                 banned_areas.append(supporting_area)
 
@@ -438,7 +425,10 @@ class AI:
 
         if supporting_area is None or adjacent_area is None:
             return None, None
-
+        elif supporting_area is not None and adjacent_area is not  None:
+            transfer_value = self.calculate_transfer_value(supporting_area, adjacent_area)
+            if transfer_value < self.__MIN_TRANSFER_VALUE:
+                supporting_area,adjacent_area = self.propagate_support(supporting_area,adjacent_area, board, areas_distance_from_border, area_level)
         return supporting_area, adjacent_area
 
     @staticmethod
@@ -452,24 +442,79 @@ class AI:
 
         Return: Area which has, more then X dice.
         """
-        area_level = -1
-        supporting_area = None
-        max_val = 0
-
         if areas_distance_from_border is None:
-            return area_level, None
+            return -1, None
+        val_max = 0
+        max_dist = -1
+        max_area = None
+        for i in range(2, len(areas_distance_from_border)):
+            for a in areas_distance_from_border[i]:
+                if a not in banned_areas and a.get_dice() > 1:
+                    value = 0.75 * i * 1.5 * a.get_dice()
+                    if value > val_max:
+                        max_area = a
+                        val_max = value
+                        max_dist = i
+        return max_dist, max_area
 
-        for i in range(3, len(areas_distance_from_border)):
-            for area in areas_distance_from_border[i]:
-                if (area.get_dice() >= 5) and (area.get_dice() > max_val) and (area not in banned_areas):
-                    area_level = i
-                    max_val = area.get_dice()
-                    supporting_area = area
+    def propagate_support(self, starting_area,adjacent_area,board,areas_distance_from_border,area_level):
+        open_list = [(starting_area,adjacent_area)]
+        closed_list = []
+        possible_ends = []
+        while len(open_list) != 0:
+            curr_pair = open_list.pop()
+            curr_area = curr_pair[1]
+            curr_distance = self.get_distance_from_border(areas_distance_from_border,curr_area)
+            for neighbour_name in curr_area.get_adjacent_areas_names():
+                neighbour_area = board.get_area(neighbour_name)
+                neighbour_distance = self.get_distance_from_border(areas_distance_from_border,neighbour_area)
+                neighbour_transfer_value = self.calculate_transfer_value(curr_area,neighbour_area)
+                generated_child = False
+                if neighbour_transfer_value < self.__MIN_TRANSFER_VALUE and neighbour_distance < curr_distance and neighbour_distance != 0 and neighbour_area not in closed_list:
+                    generated_child = True
+                    open_list.append((curr_area,neighbour_area))
+            if not generated_child and curr_area != adjacent_area and curr_area not in possible_ends:
+                possible_ends.append(curr_pair)
+            closed_list.append(curr_area)
 
-        return area_level, supporting_area
+        max_val = 0
+        chosen_support_end = None
+        chosen_adj_end = None
+        if len(possible_ends) > 0:
+            for poss_end in possible_ends:
+                poss_end_area = poss_end[1]
+                if poss_end_area.get_dice() != 8:
+                    transfer_val = poss_end_area.get_dice() / self.get_distance_from_border(areas_distance_from_border,poss_end_area)
+                    if transfer_val > max_val:
+                        max_val = transfer_val
+                        chosen_support_end = poss_end[0]
+                        chosen_adj_end = poss_end_area
+        if chosen_support_end is None or chosen_adj_end is None or (chosen_adj_end.get_dice() == 8):
+            chosen_support_end = starting_area
+            chosen_adj_end = adjacent_area
+
+        return chosen_support_end, chosen_adj_end
 
     @staticmethod
-    def find_area_which_need_support(supporting_area, areas_distance_from_border, area_level, board):
+    def get_distance_from_border(areas_distance_from_border,area):
+        val_list = list(areas_distance_from_border.values())
+        position = -1
+        for area_list in val_list:
+            if area in area_list:
+                return val_list.index(area_list)
+        return position
+
+    @staticmethod
+    def calculate_transfer_value(transfer_area, receive_area):
+        able_to_transfer_val = transfer_area.get_dice() - 1
+        able_to_receive_val = 8 - receive_area.get_dice()
+
+        transfer_value = able_to_transfer_val
+        if able_to_receive_val < able_to_transfer_val:
+            transfer_value = able_to_receive_val
+        return transfer_value
+
+    def find_area_which_need_support(self, supporting_area, areas_distance_from_border, area_level, board):
         """
         Description: Find area which need to be supported
 
@@ -481,21 +526,22 @@ class AI:
 
         Return: Area which which need, to be supported
         """
-        weak_area = None
-        min_val = 8
+        weak_area_val = 10000
+        supp_area = None
 
         if supporting_area is None or areas_distance_from_border is None:
             return None, None
 
         adj_areas = supporting_area.get_adjacent_areas_names()
         for adj in adj_areas:
-            adjacent_area = board.get_area(adj)
+            adj_area_distance = self.get_distance_from_border(areas_distance_from_border,board.get_area(adj))
 
-            if (adjacent_area in areas_distance_from_border[area_level - 1]) and (adjacent_area.get_dice() <= min_val):
-                min_val = adjacent_area.get_dice()
-                weak_area = adjacent_area
-
-        return weak_area
+            if adj_area_distance < area_level and board.get_area(adj).get_dice() < 8:
+                cur_val = 1.2*adj_area_distance + board.get_area(adj).get_dice()
+                if cur_val < weak_area_val:
+                    weak_area_val = cur_val
+                    supp_area = board.get_area(adj)
+        return supp_area
 
     def fill_area_distance(self, board: Board, areas_distance_from_border: Dict[int, List[Area]], depth):
         """
