@@ -34,13 +34,13 @@ class AI:
         self.csv_file.close()
 
 
-    def __get_number_of_enemies_area(self, board: Board):
+    def __get_number_of_enemies_area(self, board: Board, player_name):
         number_of_areas = 0
         number_of_dices = 0
         number_of_regions = 0
 
         for i in range(board.nb_players_alive()):
-            if i+1 != self.player_name:
+            if i+1 != player_name:
                 number_of_regions += len(board.get_players_regions(i+1))
 
                 areas = board.get_player_areas(i+1)
@@ -50,16 +50,16 @@ class AI:
 
         return number_of_areas, number_of_dices, number_of_regions
 
-    def __get_dice_on_border(self, board: Board):
+    def __get_dice_on_border(self, board: Board, player_name):
         result = 0
-        areas = board.get_player_border(self.player_name)
+        areas = board.get_player_border(player_name)
         for area in areas:
             result += area.get_dice()
 
         return result
 
-    def __get_biggest_region(self, board: Board):
-        regions = board.get_players_regions(self.player_name)
+    def __get_biggest_region(self, board: Board, player_name):
+        regions = board.get_players_regions(player_name)
 
         region_size = 0
         max = 0
@@ -101,6 +101,11 @@ class AI:
         self.area_win_lose = -1
         self.number_areas_previous = 1
         self.training_data = {}
+        
+        self.players_order=players_order
+        #potreba mit nasi ai v seznamu na prvnim miste
+        while player_name != self.players_order[0]:
+            self.players_order.append(self.players_order.pop(0))
 
         if board.nb_players_alive() == 2:
             self.treshold = 0.2
@@ -202,6 +207,121 @@ class AI:
                 return TransferCommand(full_area.get_name(), vulnerable_area.get_name())
 
         return None
+        
+    def eval_node(self, board: Board, player_name):
+        """
+        Description: heuristic for board evaluation based on machine learning.
+
+        Parameters:
+            board: Game board.
+            player_name: name of player from whose perspective the board is judged
+
+        Return: model, numerical evaluation of board
+        """
+
+        num_of_areas, num_of_dice, number_of_regions = self.__get_number_of_enemies_area(board, player_name)
+        self.training_data['enemies'] = board.nb_players_alive()
+        self.training_data['enemies_areas'] = num_of_areas
+        self.training_data['enemies_dice'] = num_of_dice
+        self.training_data['my_dice'] = board.get_player_dice(player_name)
+        self.training_data['my_areas'] = len(board.get_player_areas(player_name))
+        self.training_data['border_areas'] = len(board.get_player_border(player_name))
+        self.training_data['border_dice'] = self.__get_dice_on_border(board, player_name)
+        self.training_data['regions'] = len(board.get_players_regions(player_name))
+        self.training_data['enemies_regions'] = number_of_regions
+        self.training_data['biggest_region'] = self.__get_biggest_region(board, player_name)
+        vector = []
+
+        for column in self.training_data.values():
+            vector.append(column)
+
+        # Aby sa uz neupravovali vahy modelu
+        with torch.no_grad():
+            # Pre hodnotu 0/1 ako predpovede ci prehra aelob vyhra z daneho stavu
+            # pst = TrainModel.threshold(self.model(torch.Tensor([vector])))
+            # Teraz mame pravdepodobnost v rozmedzi 0 az 1 (napr. 0.821)
+            pst = self.model(torch.Tensor([vector]))
+         
+        model=(pst.item()*0.8)
+        return model
+
+    def expand_moves(self, board: Board, player_name):
+        """
+        Description: explosion of node
+
+        Parameters:
+            board: Game board.
+            player_name: name of player from whose perspective the board is judged
+
+        Return: list of boards that are possible to get by player attacking
+        """
+        attacks = list(possible_attacks(board, player_name))
+        if attacks == []:
+            return [board]
+        list_of_boards=[]
+        for attack in attacks:
+            source_area = attack[0]
+            target_area = attack[1]                
+            prob_of_successful_attack = 0
+            if source_area.get_dice() > 1:
+                prob_of_successful_attack = probability_of_successful_attack(board, source_area.get_name(), target_area.get_name())
+                
+            if prob_of_successful_attack < 0.25:
+                continue
+            atk_power = source_area.get_dice()
+            hold_prob = prob_of_successful_attack * probability_of_holding_area(board, target_area.get_name(), atk_power - 1, player_name)
+            board_after_simulation = self.simulate_turn(board, source_area, target_area)
+            list_of_boards.append(board_after_simulation)
+        return list_of_boards
+        
+    def simulate_game(self,board: Board, player_name, depth):
+        """
+        Description: state space search
+
+        Parameters:
+            board: Game board.
+            player_name: name of player from whose perspective the game is judged
+            depth: level of submersion
+
+        Return: tmodel, numerical evaluation of state
+        """
+        tmodel=0
+        boards=[board]
+        #this player is playing, expanding nodes
+        for x in range(depth):
+            boards_inner=[]
+            for b in boards:
+                boards_inner=boards_inner+(self.expand_moves(b,player_name))                
+            boards=boards_inner
+        #other players are playing
+        for player in self.players_order[1:]:
+            for b in boards:
+                boards_help=[b]
+                boards_inner_help=[]
+                rememberb=b
+                for x in range(depth):
+                    for b2 in boards_help:
+                        boards_inner_help=boards_inner_help+(self.expand_moves(b2,player))
+                    boards_help=boards_inner_help
+                #now we have possible expansions for node b after -depth- turns of player
+                for b3 in boards_help:
+                    player_model=0
+                    model=self.eval_node(b3, player)
+                    #we suppose they will chose route which is best for them
+                    if model>tmodel:
+                        playermodel=model
+                        rememberb=b3
+                #therefore the node from our list will change to node played by player
+                boards.remove(b)
+                boards.append(rememberb)
+        #now we have responses of every player to every node
+        for b in boards:
+            model=self.eval_node(b, player_name)
+            if model>tmodel:
+                tmodel=model
+        return tmodel
+
+                    
 
     def action_attack(self, board: Board, time_left, depth):
         """
@@ -241,43 +361,29 @@ class AI:
             board_after_simulation = self.simulate_turn(board_after_simulation, source_area, target_area)
 
             number_of_dices = self.action_attack(board_after_simulation, time_left, depth - 1)
-
-            num_of_areas, num_of_dice, number_of_regions = self.__get_number_of_enemies_area(board_after_simulation)
-            self.training_data['enemies'] = board_after_simulation.nb_players_alive()
-            self.training_data['enemies_areas'] = num_of_areas
-            self.training_data['enemies_dice'] = num_of_dice
-            self.training_data['my_dice'] = board_after_simulation.get_player_dice(self.player_name)
-            self.training_data['my_areas'] = len(board_after_simulation.get_player_areas(self.player_name))
-            self.training_data['border_areas'] = len(board_after_simulation.get_player_border(self.player_name))
-            self.training_data['border_dice'] = self.__get_dice_on_border(board_after_simulation)
-            self.training_data['regions'] = len(board_after_simulation.get_players_regions(self.player_name))
-            self.training_data['enemies_regions'] = number_of_regions
-            self.training_data['biggest_region'] = self.__get_biggest_region(board_after_simulation)
-            vector = []
-
-            for column in self.training_data.values():
-                vector.append(column)
-
-            # Aby sa uz neupravovali vahy modelu
-            with torch.no_grad():
-                # Pre hodnotu 0/1 ako predpovede ci prehra aelob vyhra z daneho stavu
-                # pst = TrainModel.threshold(self.model(torch.Tensor([vector])))
-                # Teraz mame pravdepodobnost v rozmedzi 0 az 1 (napr. 0.821)
-                pst = self.model(torch.Tensor([vector]))
-
             atk_power = float(atk_power / 8)
-            median = ((pst.item()*0.8) + (prob_of_successful_attack*0.8) + (hold_prob*1.2) + (atk_power*1.2)) / 4
-
+            if time_left>10:
+                model=self.simulate_game(board_after_simulation, self.player_name, 4)
+                #print("reg4:" + str(time_left))
+            elif time_left>5:
+                model=self.simulate_game(board_after_simulation, self.player_name, 3)
+                #print("reg3:" + str(time_left))
+            else:
+                model=self.simulate_game(board_after_simulation, self.player_name, 2)
+                #print("reg2" + str(time_left))
+            #print("model gives value:" + str(model))
+            median = (model + (prob_of_successful_attack*0.8) + (hold_prob*1.2) + (atk_power*1.2)) / 4
             if median > self.prob_of_successful_attack and depth == self.__DEPTH:
                 self.prob_of_successful_attack = median
                 self.promising_attack = attack
+                #print("current highest value:" + str(model))
 
             # TODO.md - Tento trash code treba nahradiť normalnym prehladavanim stavoveho priestoru
             #if median > self.prob_of_successful_attack and depth == self.__DEPTH:
             #    #self.sum_of_dices = number_of_dices
             #    self.prob_of_successful_attack = median
             #    self.promising_attack = attack
-
+        #print("attack selected")
         return number_of_dices
 
     @staticmethod
@@ -600,7 +706,7 @@ class AI:
         elif self.agresivity_index < 0:
             self.agresivity_index = 0
 
-        if board.nb_players_alive() == 4:
+        if board.nb_players_alive() >= 4:
             tresh_hold = 0.48 #* self.agresivity_index
         elif board.nb_players_alive() == 3:
             tresh_hold = 0.42 #* self.agresivity_index
