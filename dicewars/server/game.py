@@ -421,9 +421,9 @@ class Game:
         df.to_csv("training_data.csv", index=False)
 
     def process_win(self, player_nick, player_name):
-        #if player_nick == "gf.xgeffe00 (AI)":
+        # if player_nick == "gf.xgeffe00 (AI)":
         #    self.__write_to_csv(1)
-        #else:
+        # else:
         #    self.__write_to_csv(0)
 
         self.summary.set_winner(player_nick)

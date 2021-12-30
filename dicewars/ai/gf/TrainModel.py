@@ -15,8 +15,6 @@ import dicewars.ai.gf.Model as m
 # random.seed(0)
 
 
-# first,second,third,fourth,fifth,sixth,sevent,eighth,win
-
 class TrainModel:
     def __init__(self):
         pass
@@ -62,14 +60,15 @@ class TrainModel:
         # print(cwd)
         # for debug
         # model.load_state_dict(torch.load("SUI_model"))
-        model.load_state_dict(torch.load("dicewars/ai/gf/SUI_model"))
+        model.load_state_dict(torch.load("dicewars/ai/gf/NEW_MODEL"))
         model.eval()
         return model
 
     @staticmethod
     def save_model(model):
-        torch.save(model.state_dict(), "SUI_model")
-        print("Saved new model to SUI_model file")
+        model_name = "NEW_MODEL"
+        torch.save(model.state_dict(), model_name)
+        print("Saved new model to " + model_name + " file")
 
     @staticmethod
     def test_threshold():
@@ -104,7 +103,7 @@ if __name__ == '__main__':
     trainset = torch.utils.data.DataLoader(train, batch_size=10, shuffle=True)
     testset = torch.utils.data.DataLoader(test, batch_size=10, shuffle=True)
 
-    TrainModel.test_threshold()
+    # TrainModel.test_threshold()
 
     train_model = TrainModel()
     net = m.Model()

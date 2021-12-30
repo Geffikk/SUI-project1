@@ -74,18 +74,17 @@ class AI:
         return max
 
     def __init__(self, player_name, board, players_order, max_transfers):
-        #self.csv_file = open('training_data.csv', 'a')
-        #fieldnames = ['game_result', 'enemies', 'enemies_areas', 'enemies_dice', 'my_dice', 'my_areas', 'border_areas', 'border_dice', 'regions', 'enemies_regions',
+        # self.csv_file = open('training_data.csv', 'a')
+        # self.fieldnames = ['game_result', 'enemies', 'enemies_areas', 'enemies_dice', 'my_dice', 'my_areas', 'border_areas', 'border_dice', 'regions', 'enemies_regions',
         #              'biggest_region']
-        #writer = csv.DictWriter(self.csv_file, fieldnames=fieldnames)
-        #writer.writeheader()
-        #self.csv_file.close()
+        # writer = csv.DictWriter(self.csv_file, fieldnames=self.fieldnames)
+        # writer.writeheader()
 
-        #sniffer = csv.Sniffer()
-        #sample_bytes = 32
-        #print (sniffer.has_header(
-        #    open("training_data.csv").read(sample_bytes)))
-        #self.csv_file.close()
+        # sniffer = csv.Sniffer()
+        # sample_bytes = 32
+        #print(sniffer.has_header(open("training_data.csv").read(sample_bytes)))
+        # self.csv_file.close()
+
         self.players_order = players_order
         self.model = TrainModel.load_model()
 
@@ -101,7 +100,7 @@ class AI:
         self.area_win_lose = -1
         self.number_areas_previous = 1
         self.training_data = {}
-        
+
         self.players_order=players_order
         #potreba mit nasi ai v seznamu na prvnim miste
         while player_name != self.players_order[0]:
@@ -115,6 +114,20 @@ class AI:
             self.score_weight = 2
 
     def ai_turn(self, board: Board, nb_moves_this_turn, nb_transfers_this_turn, nb_turns_this_game, time_left):
+        num_of_areas, num_of_dice, number_of_regions = self.__get_number_of_enemies_area(board, self.player_name)
+        # test_data = {}
+        # test_data['enemies'] = board.nb_players_alive()
+        # test_data['enemies_areas'] = num_of_areas
+        # test_data['enemies_dice'] = num_of_dice
+        # test_data['my_dice'] = board.get_player_dice(self.player_name)
+        # test_data['my_areas'] = len(board.get_player_areas(self.player_name))
+        # test_data['border_areas'] = len(board.get_player_border(self.player_name))
+        # test_data['border_dice'] = self.__get_dice_on_border(board, self.player_name)
+        # test_data['regions'] = len(board.get_players_regions(self.player_name))
+        # test_data['enemies_regions'] = number_of_regions
+        # test_data['biggest_region'] = self.__get_biggest_region(board, self.player_name)
+        # test_data['game_result'] = -1
+        # self.__write_to_csv(test_data)
         #print("Start geffik AI Player-" + str(self.player_name) + " turn")
         self.promising_attack = []
         self.sum_of_dices = 0
@@ -241,8 +254,8 @@ class AI:
             # pst = TrainModel.threshold(self.model(torch.Tensor([vector])))
             # Teraz mame pravdepodobnost v rozmedzi 0 az 1 (napr. 0.821)
             pst = self.model(torch.Tensor([vector]))
-         
-        model=(pst.item()*0.8)
+
+        model=(pst.item()*0.7)
         return model
 
     def expand_moves(self, board: Board, player_name):
@@ -372,7 +385,7 @@ class AI:
                 model=self.simulate_game(board_after_simulation, self.player_name, 2)
                 #print("reg2" + str(time_left))
             #print("model gives value:" + str(model))
-            median = (model + (prob_of_successful_attack*0.8) + (hold_prob*1.2) + (atk_power*1.2)) / 4
+            median = (model + (prob_of_successful_attack*0.6) + (hold_prob*1.4) + (atk_power*1.3)) / 4
             if median > self.prob_of_successful_attack and depth == self.__DEPTH:
                 self.prob_of_successful_attack = median
                 self.promising_attack = attack
